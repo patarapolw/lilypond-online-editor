@@ -1,7 +1,7 @@
 import path from 'path'
 
-import { defineConfig } from 'vite'
 import { string } from 'rollup-plugin-string'
+import { defineConfig } from 'vite'
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -24,6 +24,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:27252',
+      '/f': 'http://localhost:27252',
     },
   },
 })

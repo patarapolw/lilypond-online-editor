@@ -1,12 +1,14 @@
-import './style.scss'
-
 import 'html-midi-player'
 import 'codemirror/lib/codemirror.css'
 import 'codemirror/theme/xq-light.css'
 import 'codemirror/mode/lua/lua'
 import 'codemirror/addon/edit/matchbrackets'
 import 'codemirror/addon/edit/closebrackets'
+
+import './style.scss'
+
 import CodeMirror from 'codemirror'
+
 import tpl from './template.ly'
 
 const editor = CodeMirror.fromTextArea(document.querySelector('textarea')!, {
@@ -23,6 +25,13 @@ const editor = CodeMirror.fromTextArea(document.querySelector('textarea')!, {
 })
 editor.setSize('100%', '100%')
 
+const link = {
+  url: document.querySelector('#url a') as HTMLAnchorElement,
+}
+
+const iframe = document.querySelector('iframe')!
+const midiPlayer = document.querySelector('midi-player') as HTMLImageElement
+
 const input = {
   id: document.querySelector('input[name=id]') as HTMLInputElement,
 }
@@ -34,12 +43,43 @@ const btn = {
   ) as HTMLButtonElement,
 }
 
+const pre = {
+  console: document.querySelector('pre#console') as HTMLPreElement,
+}
+
 btn.template.onclick = () => {
   editor.setValue(tpl)
 }
 
-btn.save.onclick = () => {
-  input.id.value = Math.random().toString(36).substr(2)
+btn.save.onclick = async () => {
+  const { body } = await fetch('/api/save', {
+    method: 'POST',
+    body: JSON.stringify({
+      id: input.id.value,
+      data: editor.getValue(),
+    }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+
+  const reader = body!.getReader()
+  var enc = new TextDecoder('utf-8')
+  pre.console.textContent = ''
+
+  while (true) {
+    const r = await reader.read()
+    if (r.done) {
+      break
+    }
+
+    pre.console.innerText += enc.decode(r.value)
+
+    const m = /\nid=(.+)\n/.exec(pre.console.innerText)
+    if (m && m[1]) {
+      setID(m[1])
+    }
+  }
 }
 
 window.addEventListener('keydown', (evt) => {
@@ -48,3 +88,23 @@ window.addEventListener('keydown', (evt) => {
     btn.save.click()
   }
 })
+
+const id = new URL(location.href).searchParams.get('id') || input.id.value
+
+if (id) {
+  setID(id)
+  setValue(id)
+} else {
+  editor.setValue(tpl)
+}
+
+function setID(id: string) {
+  input.id.value = id
+  link.url.href = '/f/' + id
+  iframe.src = '/f/' + id + '.pdf'
+  midiPlayer.src = '/f/' + id + '.midi'
+}
+
+async function setValue(id: string) {
+  editor.setValue(await fetch(`/f/${id}.ly`).then((r) => r.text()))
+}

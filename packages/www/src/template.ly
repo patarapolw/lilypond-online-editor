@@ -7,16 +7,16 @@
 
 \score {
   <<
-  \new ChordNames \with {midiInstrument = "acoustic guitar (nylon)"} {
+  \new ChordNames {
     \chordmode {
       
     }
   }
 
-  \new Voice = "one" \relative ef' {
+  \new Voice = "one" \relative c' {
     \tempo 4 = 80
     \key c \major
-    \clef 	treble
+    \clef treble
     
   }
 

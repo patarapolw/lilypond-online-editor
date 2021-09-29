@@ -68,7 +68,7 @@ async function main() {
 
       {
         const sBody = S.shape({
-          id: S.string(),
+          id: S.string().optional(),
           data: S.string(),
         })
 
@@ -82,18 +82,14 @@ async function main() {
             },
           },
           async (req, reply) => {
-            let { id } = req.body
+            let { id = '' } = req.body
             const { data } = req.body
 
             if (id.length < 5) {
               id = nanoid(5)
             }
 
-            while (existingIds.has(id)) {
-              id = nanoid(5)
-            }
             existingIds.add(id)
-
             reply.status(201)
 
             if (!fs.existsSync(path.join(tmpdir, id))) {
@@ -101,16 +97,18 @@ async function main() {
               await promisify(fs.mkdir)(path.join(tmpdir, id))
             }
 
-            reply.raw.write('Creating ly file\n')
+            reply.raw.write('Creating `file.ly`\n')
             await promisify(fs.writeFile)(
               path.join(tmpdir, id, 'file.ly'),
               data
             )
 
-            const p = spawn('lilypond', [path.join(tmpdir, id, 'file.ly')])
+            const p = spawn('lilypond', ['file.ly'], {
+              cwd: path.join(tmpdir, id),
+            })
 
-            p.stdout.pipe(reply.raw)
-            p.stderr.pipe(reply.raw)
+            p.stdout.on('data', (data) => reply.raw.write(data))
+            p.stderr.on('data', (data) => reply.raw.write(data))
 
             await new Promise<void>((resolve, reject) => {
               p.once('close', () => resolve())
@@ -126,12 +124,13 @@ async function main() {
                   await bucket.upload(path.join(tmpdir, id, 'file' + ext), {
                     destination: `${id}/file${ext}`,
                   })
-                  reply.raw.write(`Uploaded ${id}/file${ext}`)
+                  reply.raw.write(`Uploaded ${id}/file${ext}\n`)
                 }
               })
             )
 
             reply.raw.end()
+            return Promise.resolve('')
           }
         )
       }
@@ -150,7 +149,7 @@ async function main() {
     Params: {
       filename: string
     }
-  }>('/:filename', (req, reply) => {
+  }>('/f/:filename', (req, reply) => {
     const { filename } = req.params
     const p = path.parse(filename)
 
@@ -165,7 +164,7 @@ async function main() {
     }
 
     if (fs.existsSync(path.join(tmpdir, p.name, 'file' + p.ext))) {
-      reply.sendFile(path.join(tmpdir, p.name, 'file' + p.ext))
+      reply.sendFile('file' + p.ext, path.join(tmpdir, p.name))
       return
     }
 
@@ -175,9 +174,6 @@ async function main() {
       .pipe(reply.raw)
       .on('error', () => {
         reply.status(404).send()
-      })
-      .once('close', () => {
-        reply.raw.end()
       })
   })
 
