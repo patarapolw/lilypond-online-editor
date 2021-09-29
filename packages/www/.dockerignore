@@ -1,0 +1,8 @@
+**
+!/src/
+!/favicon.*
+!/index.html
+!/package.json
+!/yarn.lock
+!/tsconfig.*
+!/vite.config.*

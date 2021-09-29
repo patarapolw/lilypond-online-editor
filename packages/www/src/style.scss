@@ -45,7 +45,11 @@ iframe {
 
     > .left {
       display: grid;
-      grid-template-rows: 4em 1fr 30%;
+      grid-template-rows: auto 1fr 30%;
+    }
+
+    audio {
+      width: 100%;
     }
 
     #editor {

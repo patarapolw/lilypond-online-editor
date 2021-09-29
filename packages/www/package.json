@@ -9,8 +9,7 @@
     "serve": "vite preview"
   },
   "dependencies": {
-    "codemirror": "^5.63.0",
-    "html-midi-player": "^1.4.0"
+    "codemirror": "^5.63.0"
   },
   "devDependencies": {
     "@types/codemirror": "^5.60.3",

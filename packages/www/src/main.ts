@@ -1,9 +1,9 @@
-import 'html-midi-player'
 import 'codemirror/lib/codemirror.css'
 import 'codemirror/theme/xq-light.css'
 import 'codemirror/mode/lua/lua'
 import 'codemirror/addon/edit/matchbrackets'
 import 'codemirror/addon/edit/closebrackets'
+import 'codemirror/addon/mode/multiplex'
 
 import './style.scss'
 
@@ -11,8 +11,17 @@ import CodeMirror from 'codemirror'
 
 import tpl from './template.ly'
 
+CodeMirror.defineMode('lilypond', (cfg) =>
+  CodeMirror.multiplexingMode(CodeMirror.getMode(cfg, 'lua'), {
+    open: "'",
+    close: ' ',
+    mode: CodeMirror.getMode(cfg, 'text/plain'),
+    delimStyle: 'delimit',
+  })
+)
+
 const editor = CodeMirror.fromTextArea(document.querySelector('textarea')!, {
-  mode: 'lua',
+  mode: 'lilypond',
   extraKeys: {
     Tab: (cm) => cm.execCommand('indentMore'),
     'Shift-Tab': (cm) => cm.execCommand('indentLess'),
@@ -30,7 +39,7 @@ const link = {
 }
 
 const iframe = document.querySelector('iframe')!
-const midiPlayer = document.querySelector('midi-player') as HTMLImageElement
+const midiPlayer = document.querySelector('audio') as HTMLAudioElement
 
 const input = {
   id: document.querySelector('input[name=id]') as HTMLInputElement,
@@ -100,9 +109,16 @@ if (id) {
 
 function setID(id: string) {
   input.id.value = id
-  link.url.href = '/f/' + id
-  iframe.src = '/f/' + id + '.pdf'
-  midiPlayer.src = '/f/' + id + '.midi'
+  link.url.href = `/f/${id}`
+
+  const setSrcIfChanged = (o: { src: string }, url: string) => {
+    if (o.src !== url) {
+      o.src = url
+    }
+  }
+
+  setSrcIfChanged(iframe, `/f/${id}.pdf`)
+  setSrcIfChanged(midiPlayer, `/f/${id}.wav`)
 }
 
 async function setValue(id: string) {

@@ -5,7 +5,6 @@ import { promisify } from 'util'
 
 import { Storage } from '@google-cloud/storage'
 import fastify from 'fastify'
-import fastifyCors from 'fastify-cors'
 import fastifyHelmet from 'fastify-helmet'
 import fastifyRateLimit from 'fastify-rate-limit'
 import fastifyStatic from 'fastify-static'
@@ -15,8 +14,14 @@ import { nanoid } from 'nanoid'
 import { gCloudLogger } from './logger'
 import { isDev } from './shared'
 
+let credentials: any
+if (process.env['GCLOUD_JSON']) {
+  credentials = JSON.parse(process.env['GCLOUD_JSON'])
+}
+
 const bucket = new Storage({
-  credentials: JSON.parse(process.env['GCLOUD_JSON']!),
+  credentials,
+  projectId: 'lilypond-editor',
 }).bucket('lilypond')
 
 const tmpdir = path.join(__dirname, '../tmp')
@@ -54,7 +59,7 @@ async function main() {
   })
 
   if (isDev) {
-    app.register(fastifyCors)
+    app.register(require('fastify-cors'))
   }
 
   app.register(fastifyHelmet)
@@ -81,56 +86,72 @@ async function main() {
               body: sBody.valueOf(),
             },
           },
-          async (req, reply) => {
-            let { id = '' } = req.body
-            const { data } = req.body
+          (req, reply) => {
+            ;(async () => {
+              let { id = '' } = req.body
+              const { data } = req.body
 
-            if (id.length < 5) {
-              id = nanoid(5)
-            }
+              if (id.length < 5) {
+                id = nanoid(5)
+              }
 
-            existingIds.add(id)
-            reply.status(201)
+              existingIds.add(id)
+              reply.status(201)
 
-            if (!fs.existsSync(path.join(tmpdir, id))) {
-              reply.raw.write('Creating directory\n')
-              await promisify(fs.mkdir)(path.join(tmpdir, id))
-            }
+              if (!fs.existsSync(path.join(tmpdir, id))) {
+                reply.raw.write('Creating directory\n')
+                await promisify(fs.mkdir)(path.join(tmpdir, id))
+              }
 
-            reply.raw.write('Creating `file.ly`\n')
-            await promisify(fs.writeFile)(
-              path.join(tmpdir, id, 'file.ly'),
-              data
-            )
+              reply.raw.write('Creating `file.ly`\n')
+              await promisify(fs.writeFile)(
+                path.join(tmpdir, id, 'file.ly'),
+                data
+              )
 
-            const p = spawn('lilypond', ['file.ly'], {
-              cwd: path.join(tmpdir, id),
-            })
+              const spawnPipe = async (...cmd: string[]) => {
+                const p = spawn(cmd[0]!, cmd.slice(1), {
+                  cwd: path.join(tmpdir, id),
+                })
 
-            p.stdout.on('data', (data) => reply.raw.write(data))
-            p.stderr.on('data', (data) => reply.raw.write(data))
+                p.stdout.on('data', (data) => reply.raw.write(data))
+                p.stderr.on('data', (data) => reply.raw.write(data))
 
-            await new Promise<void>((resolve, reject) => {
-              p.once('close', () => resolve())
-              p.once('error', reject)
-            })
+                await new Promise<void>((resolve, reject) => {
+                  p.once('close', () => resolve())
+                  p.once('error', reject)
+                })
+              }
 
-            reply.raw.write(`\nid=${id}\n`)
+              await spawnPipe('lilypond', 'file.ly')
 
-            const exts = ['.ly', '.midi', '.pdf']
-            await Promise.all(
-              exts.map(async (ext) => {
-                if (fs.existsSync(path.join(tmpdir, id, 'file' + ext))) {
-                  await bucket.upload(path.join(tmpdir, id, 'file' + ext), {
-                    destination: `${id}/file${ext}`,
-                  })
-                  reply.raw.write(`Uploaded ${id}/file${ext}\n`)
-                }
-              })
-            )
+              reply.raw.write(`\nid=${id}\n`)
 
-            reply.raw.end()
-            return Promise.resolve('')
+              if (fs.existsSync(path.join(tmpdir, id, 'file.midi'))) {
+                await spawnPipe(
+                  'timidity',
+                  'file.midi',
+                  '-A300',
+                  '-Ow',
+                  '-o',
+                  'file.wav'
+                )
+              }
+
+              const exts = ['.ly', '.midi', '.pdf', '.wav']
+              await Promise.all(
+                exts.map(async (ext) => {
+                  if (fs.existsSync(path.join(tmpdir, id, 'file' + ext))) {
+                    await bucket.upload(path.join(tmpdir, id, 'file' + ext), {
+                      destination: `${id}/file${ext}`,
+                    })
+                    reply.raw.write(`Uploaded ${id}/file${ext}\n`)
+                  }
+                })
+              )
+
+              reply.raw.end()
+            })()
           }
         )
       }
@@ -159,7 +180,7 @@ async function main() {
     }
 
     if (!p.ext) {
-      reply.redirect(304, '/?id=' + encodeURIComponent(p.name))
+      reply.redirect(302, '/?id=' + encodeURIComponent(p.name))
       return
     }
 
