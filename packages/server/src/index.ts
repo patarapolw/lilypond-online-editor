@@ -166,6 +166,12 @@ async function main() {
     redirect: true,
   })
 
+  app.register(fastifyStatic, {
+    root: path.join(__dirname, '../pdf.js-dist'),
+    prefix: '/pdf.js',
+    decorateReply: false,
+  })
+
   app.get<{
     Params: {
       filename: string

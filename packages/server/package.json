@@ -5,6 +5,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc -p src/tsconfig.json",
+    "build:pdf.js": "rm -rf pdf.js-dist && cd pdf.js && npm i && gulp generic && cp -r build/generic ../pdf.js-dist",
     "dev": "NODE_ENV=development ts-node-dev src/index.ts"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "@types/node": "^16.10.1",
     "@types/pino": "^6.3.11",
     "fastify-cors": "^6.0.2",
+    "gulp-cli": "^2.3.0",
     "import-sort-parser-typescript": "^6.0.0",
     "pino-pretty": "^7.0.1",
     "ts-node-dev": "^1.1.8",

@@ -1,0 +1,3 @@
+[submodule "packages/server/pdf.js"]
+	path = packages/server/pdf.js
+	url = https://github.com/mozilla/pdf.js.git

@@ -117,7 +117,12 @@ function setID(id: string) {
     }
   }
 
-  setSrcIfChanged(iframe, `/f/${id}.pdf`)
+  setSrcIfChanged(
+    iframe,
+    `/pdf.js/web/viewer.html?file=${encodeURIComponent(
+      `/f/${id}.pdf`
+    )}#pagemode=none`
+  )
   setSrcIfChanged(midiPlayer, `/f/${id}.wav`)
 }
 
