@@ -1,0 +1,11 @@
+version: '3'
+services:
+  server:
+    restart: always
+    build: ./packages/server
+    environment:
+      GCLOUD_JSON:
+      GOOGLE_CLOUD_CREDENTIALS:
+      PORT: 8080
+    ports:
+      - 8080:8080
