@@ -201,7 +201,7 @@ async function main() {
       const p = path.parse(filename)
 
       const ext = p.ext
-      const uid = p.base
+      const uid = p.name
 
       if (uid.length < 5) {
         reply.status(404).send()
@@ -264,13 +264,18 @@ async function main() {
       const uid = filename
       const version = parseInt(_ver.split('.')[0]!)
 
-      if (uid.length < 5 || !version) {
+      if (uid.length < 5) {
         reply.status(404).send()
         return
       }
 
+      if (!version) {
+        reply.redirect(301, '/f/' + uid + ext)
+        return
+      }
+
       if (!ext) {
-        reply.redirect(302, '/?id=' + encodeURIComponent(uid) + '/' + version)
+        reply.redirect(302, '/?id=' + uid + '/' + version)
         return
       }
 
