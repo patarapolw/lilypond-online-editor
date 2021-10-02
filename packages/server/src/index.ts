@@ -208,13 +208,6 @@ async function main() {
         return
       }
 
-      const existingIds = await DbEntryModel.uids()
-
-      if (!existingIds.has(uid)) {
-        reply.status(404).send()
-        return
-      }
-
       if (!ext) {
         reply.redirect(302, '/?id=' + encodeURIComponent(uid))
         return
@@ -231,9 +224,7 @@ async function main() {
       }
 
       if (
-        fs.existsSync(
-          path.join(tmpdir, filename, prev.version.toString() + ext)
-        )
+        fs.existsSync(path.join(tmpdir, uid, prev.version.toString() + ext))
       ) {
         reply.sendFile(prev.version.toString() + ext, path.join(tmpdir, uid))
         return
@@ -278,13 +269,6 @@ async function main() {
         return
       }
 
-      const existingIds = await DbEntryModel.uids()
-
-      if (!existingIds.has(uid)) {
-        reply.status(404).send()
-        return
-      }
-
       if (!ext) {
         reply.redirect(302, '/?id=' + encodeURIComponent(uid) + '/' + version)
         return
@@ -293,18 +277,32 @@ async function main() {
       const prev = await DbEntryModel.findOne({
         uid,
         version,
-      }).sort({
-        createdAt: -1,
       })
+
       if (!prev) {
-        reply.status(404).send()
-        return
+        if (fs.existsSync(path.join(tmpdir, uid))) {
+          const [f] = await promisify(fs.readdir)(path.join(tmpdir, uid)).then(
+            (files) =>
+              files
+                .filter((f) => f.endsWith(ext))
+                .sort()
+                .reverse()
+          )
+          if (f) {
+            reply.sendFile(f, path.join(tmpdir, uid))
+          } else {
+            reply.status(404).send()
+          }
+
+          return
+        } else {
+          reply.status(404).send()
+          return
+        }
       }
 
       if (
-        fs.existsSync(
-          path.join(tmpdir, filename, prev.version.toString() + ext)
-        )
+        fs.existsSync(path.join(tmpdir, uid, prev.version.toString() + ext))
       ) {
         reply.sendFile(prev.version.toString() + ext, path.join(tmpdir, uid))
         return
