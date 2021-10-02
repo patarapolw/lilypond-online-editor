@@ -43,9 +43,11 @@ iframe {
     display: grid;
     grid-template-columns: 1fr 1fr;
 
+    $console-height: 250px;
+
     > .left {
       display: grid;
-      grid-template-rows: auto 1fr 30%;
+      grid-template-rows: auto 1fr $console-height;
     }
 
     audio {
@@ -61,6 +63,7 @@ iframe {
       background-color: lightgray;
       border: 1px solid gray;
       overflow: scroll;
+      height: $console-height;
 
       -ms-overflow-style: none;  /* Internet Explorer 10+ */
       scrollbar-width: none;  /* Firefox */

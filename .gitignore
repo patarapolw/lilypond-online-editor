@@ -105,3 +105,5 @@ dist
 
 /gcloud.json
 .env
+/mongodb/
+/mongodata/

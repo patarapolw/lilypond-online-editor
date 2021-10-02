@@ -16,13 +16,13 @@ WORKDIR /app
 RUN yarn init -y && yarn add gulp-cli -D
 COPY pdf.js pdf.js
 RUN cd pdf.js && npm i && npx gulp generic && cp -r build/generic ../pdf.js-dist
+RUN rm -rf pdf.js
 
 RUN mkdir tmp
 COPY package.json yarn.lock ./
 RUN yarn
-COPY . .
-
-RUN rm -rf pdf.js
+COPY src src
+COPY tsconfig.json ./
 
 RUN yarn build
 RUN node -e 'const pkg = require("./package.json"); delete pkg.devDependencies; require("fs").writeFileSync("package.json", JSON.stringify(pkg))'

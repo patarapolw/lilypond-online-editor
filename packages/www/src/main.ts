@@ -100,7 +100,7 @@ window.addEventListener('keydown', (evt) => {
 
 const id = new URL(location.href).searchParams.get('id') || input.id.value
 
-if (id) {
+if (/^[^/]+(\/\d+)?$/.test(id)) {
   setID(id)
   setValue(id)
 } else {

@@ -1,56 +1,25 @@
 import { spawn } from 'child_process'
-import fs from 'fs'
+import fs, { WriteStream } from 'fs'
 import path from 'path'
 import { promisify } from 'util'
 
-import { Storage } from '@google-cloud/storage'
+import { mongoose } from '@typegoose/typegoose'
 import fastify from 'fastify'
 import fastifyHelmet from 'fastify-helmet'
 import fastifyRateLimit from 'fastify-rate-limit'
 import fastifyStatic from 'fastify-static'
 import S from 'jsonschema-definer'
-import { nanoid } from 'nanoid'
+import { GridFSBucket, ObjectId } from 'mongodb'
 
+import { DbEntryModel } from './db'
 import { gCloudLogger } from './logger'
-import { isDev } from './shared'
-
-let credentials: any
-if (process.env['GCLOUD_JSON']) {
-  credentials = JSON.parse(process.env['GCLOUD_JSON'])
-}
-
-const bucket = new Storage({
-  credentials,
-  projectId: 'lilypond-editor',
-}).bucket('lilypond')
-
-const tmpdir = path.join(__dirname, '../tmp')
+import { isDev, tmpdir } from './shared'
 
 async function main() {
   const port = parseInt(process.env['PORT']!) || 27252
 
-  const existingIds = new Set<string>()
-
-  {
-    const [files] = await bucket.getFiles()
-    files.map((f) => {
-      const parts = f.name.split('/')
-      const id = parts[0] || parts[1]!
-      if (id[0] !== '.') {
-        existingIds.add(id)
-      }
-    })
-  }
-
-  {
-    fs.readdirSync(tmpdir).map((f) => {
-      const parts = f.split('/')
-      const id = parts[0] || parts[1]!
-      if (id[0] !== '.') {
-        existingIds.add(id)
-      }
-    })
-  }
+  await mongoose.connect(process.env['MONGO_URI']!)
+  const bucket = new GridFSBucket(mongoose.connection.db)
 
   const app = fastify({
     logger: gCloudLogger({
@@ -73,7 +42,7 @@ async function main() {
 
       {
         const sBody = S.shape({
-          id: S.string().optional(),
+          id: S.string(),
           data: S.string(),
         })
 
@@ -88,14 +57,38 @@ async function main() {
           },
           (req, reply) => {
             ;(async () => {
-              let { id = '' } = req.body
+              let { id } = req.body
               const { data } = req.body
 
+              id = id.split('/')[0]!
+
+              let prev:
+                | {
+                    uid: string
+                    version: number
+                    lilypond: string
+                  }
+                | undefined
+
               if (id.length < 5) {
-                id = nanoid(5)
+                id = await DbEntryModel.newUID()
+              } else {
+                const p = await DbEntryModel.findOne({ uid: id }).sort({
+                  createdAt: -1,
+                })
+                if (p) {
+                  prev = p
+                } else {
+                  id = await DbEntryModel.newUID()
+                }
               }
 
-              existingIds.add(id)
+              if (prev?.lilypond === data) {
+                reply.status(200).send()
+                return
+              }
+
+              const ver = (prev?.version || 0) + 1
               reply.status(201)
 
               if (!fs.existsSync(path.join(tmpdir, id))) {
@@ -103,9 +96,9 @@ async function main() {
                 await promisify(fs.mkdir)(path.join(tmpdir, id))
               }
 
-              reply.raw.write('Creating `file.ly`\n')
+              reply.raw.write(`Creating ${id}/${ver}.ly\n`)
               await promisify(fs.writeFile)(
-                path.join(tmpdir, id, 'file.ly'),
+                path.join(tmpdir, `${id}/${ver}.ly`),
                 data
               )
 
@@ -123,32 +116,58 @@ async function main() {
                 })
               }
 
-              await spawnPipe('lilypond', 'file.ly')
+              await spawnPipe('lilypond', `${ver}.ly`)
 
-              reply.raw.write(`\nid=${id}\n`)
-
-              if (fs.existsSync(path.join(tmpdir, id, 'file.midi'))) {
+              if (fs.existsSync(path.join(tmpdir, id, `${ver}.midi`))) {
                 await spawnPipe(
                   'timidity',
-                  'file.midi',
+                  `${ver}.midi`,
                   '-A300',
                   '-Ow',
                   '-o',
-                  'file.wav'
+                  `${ver}.wav`
                 )
               }
 
-              const exts = ['.ly', '.midi', '.pdf', '.wav']
+              reply.raw.write(`id=${id}/${ver}\n`)
+
+              const files: Record<
+                'midi' | 'pdf' | 'wav',
+                ObjectId | undefined
+              > = {
+                midi: undefined,
+                pdf: undefined,
+                wav: undefined,
+              }
+
               await Promise.all(
-                exts.map(async (ext) => {
-                  if (fs.existsSync(path.join(tmpdir, id, 'file' + ext))) {
-                    await bucket.upload(path.join(tmpdir, id, 'file' + ext), {
-                      destination: `${id}/file${ext}`,
+                Object.keys(files).map(async (ext) => {
+                  if (fs.existsSync(path.join(tmpdir, `${id}/${ver}.${ext}`))) {
+                    await new Promise<void>((resolve, reject) => {
+                      const s = bucket.openUploadStream(`${id}/${ver}.${ext}`)
+
+                      fs.createReadStream(
+                        path.join(tmpdir, `${id}/${ver}.${ext}`)
+                      )
+                        .pipe(s as unknown as WriteStream)
+                        .once('error', reject)
+                        .once('close', () => {
+                          files[ext as keyof typeof files] = s.id
+                          resolve()
+                        })
                     })
-                    reply.raw.write(`Uploaded ${id}/file${ext}\n`)
+
+                    reply.raw.write(`Uploaded ${id}/${ver}.${ext}\n`)
                   }
                 })
               )
+
+              await DbEntryModel.create({
+                ...files,
+                uid: id,
+                version: ver,
+                lilypond: data,
+              })
 
               reply.raw.end()
             })()
@@ -177,31 +196,139 @@ async function main() {
       filename: string
     }
   }>('/f/:filename', (req, reply) => {
-    const { filename } = req.params
-    const p = path.parse(filename)
+    ;(async () => {
+      const { filename } = req.params
+      const p = path.parse(filename)
 
-    if (p.name.length < 5 || !existingIds.has(p.name)) {
-      reply.status(404).send()
-      return
-    }
+      const ext = p.ext
+      const uid = p.base
 
-    if (!p.ext) {
-      reply.redirect(302, '/?id=' + encodeURIComponent(p.name))
-      return
-    }
-
-    if (fs.existsSync(path.join(tmpdir, p.name, 'file' + p.ext))) {
-      reply.sendFile('file' + p.ext, path.join(tmpdir, p.name))
-      return
-    }
-
-    bucket
-      .file(`${p.name}/file${p.ext}`)
-      .createReadStream()
-      .pipe(reply.raw)
-      .on('error', () => {
+      if (uid.length < 5) {
         reply.status(404).send()
+        return
+      }
+
+      const existingIds = await DbEntryModel.uids()
+
+      if (!existingIds.has(uid)) {
+        reply.status(404).send()
+        return
+      }
+
+      if (!ext) {
+        reply.redirect(302, '/?id=' + encodeURIComponent(uid))
+        return
+      }
+
+      const prev = await DbEntryModel.findOne({
+        uid,
+      }).sort({
+        createdAt: -1,
       })
+      if (!prev) {
+        reply.status(404).send()
+        return
+      }
+
+      if (
+        fs.existsSync(
+          path.join(tmpdir, filename, prev.version.toString() + ext)
+        )
+      ) {
+        reply.sendFile(prev.version.toString() + ext, path.join(tmpdir, uid))
+        return
+      }
+
+      if (ext === '.ly') {
+        reply.send(prev.lilypond)
+        return
+      }
+
+      const oid = (prev as any)[ext.substr(1)]
+
+      if (!oid) {
+        reply.status(404).send()
+        return
+      }
+
+      bucket
+        .openDownloadStream(oid)
+        .pipe(reply.raw)
+        .on('error', () => {
+          reply.status(404).send()
+        })
+    })()
+  })
+
+  app.get<{
+    Params: {
+      filename: string
+      ver: string
+    }
+  }>('/f/:filename/:ver', (req, reply) => {
+    ;(async () => {
+      const { filename, ver: _ver } = req.params
+
+      const ext = path.parse(_ver).ext
+      const uid = filename
+      const version = parseInt(_ver.split('.')[0]!)
+
+      if (uid.length < 5 || !version) {
+        reply.status(404).send()
+        return
+      }
+
+      const existingIds = await DbEntryModel.uids()
+
+      if (!existingIds.has(uid)) {
+        reply.status(404).send()
+        return
+      }
+
+      if (!ext) {
+        reply.redirect(302, '/?id=' + encodeURIComponent(uid) + '/' + version)
+        return
+      }
+
+      const prev = await DbEntryModel.findOne({
+        uid,
+        version,
+      }).sort({
+        createdAt: -1,
+      })
+      if (!prev) {
+        reply.status(404).send()
+        return
+      }
+
+      if (
+        fs.existsSync(
+          path.join(tmpdir, filename, prev.version.toString() + ext)
+        )
+      ) {
+        reply.sendFile(prev.version.toString() + ext, path.join(tmpdir, uid))
+        return
+      }
+
+      if (ext === '.ly') {
+        reply.send(prev.lilypond)
+        return
+      }
+
+      const oid = (prev as any)[ext.substr(1)]
+
+      if (!oid) {
+        reply.status(404).send()
+        return
+      }
+
+      bucket
+        .openDownloadStream(oid)
+        .pipe(reply.raw)
+        .on('error', () => {
+          reply.status(404).send()
+        })
+    })()
   })
 
   await app.listen(port, '0.0.0.0')
