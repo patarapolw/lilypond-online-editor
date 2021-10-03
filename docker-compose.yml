@@ -3,22 +3,14 @@ services:
   server:
     depends_on:
       - www
-      - db
     restart: always
     build: ./packages/server
     image: ly-editor
     environment:
-      MONGO_URI: mongodb://db/lilypond
+      GCLOUD_JSON:
       PORT: 8080
     ports:
       - 8080:8080
   www:
     build: ./packages/www
     image: ly-www
-  db:
-    restart: always
-    image: mongo
-    volumes:
-      - ./mongodata:/data/db
-    ports:
-      - 27017:27017
